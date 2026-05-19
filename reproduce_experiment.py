@@ -344,7 +344,7 @@ def select_biased_components(
 def group_output_values(model, tokenizer, spec: PromptSpec, names: Sequence[str], *, max_new_tokens: int = 32, head_mask: Optional[torch.Tensor] = None) -> List[Optional[float]]:
     model.eval()
     values: List[Optional[float]] = []
-    for name in names:
+    for i, name in enumerate(names):
         prompt = render_prompt(spec, name)
         inputs = tokenizer(prompt, return_tensors="pt")
         inputs = {key: value.to(model.device) for key, value in inputs.items()}
@@ -358,7 +358,11 @@ def group_output_values(model, tokenizer, spec: PromptSpec, names: Sequence[str]
             )
             output_ids = model.generate(**generate_kwargs)
         generated = tokenizer.decode(output_ids[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
-        values.append(parse_numeric(generated))
+        parsed_value = parse_numeric(generated)
+        values.append(parsed_value)
+        # Debug output for first few names
+        if i < 2:
+            print(f"[DEBUG {spec.variation}] {name}: '{generated}' -> {parsed_value}")
     return values
 
 
