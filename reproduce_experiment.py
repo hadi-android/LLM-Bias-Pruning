@@ -353,12 +353,9 @@ def group_output_values(model, tokenizer, spec: PromptSpec, names: Sequence[str]
                 **inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
-                temperature=0.0,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
-            if head_mask is not None:
-                generate_kwargs["head_mask"] = head_mask
             output_ids = model.generate(**generate_kwargs)
         generated = tokenizer.decode(output_ids[0][inputs["input_ids"].shape[1] :], skip_special_tokens=True)
         values.append(parse_numeric(generated))
