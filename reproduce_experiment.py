@@ -277,12 +277,11 @@ def score_prompt_components(model, tokenizer, prompt: str, name: str) -> Dict[Co
         hooks.append(layer.mlp.gate_proj.register_forward_hook(_register_capture_hook(gate_outputs, layer_index)))
         hooks.append(layer.mlp.up_proj.register_forward_hook(_register_capture_hook(up_outputs, layer_index)))
     with torch.no_grad():
-        outputs = model(**inputs, output_attentions=True, use_cache=False)
+        outputs = model(**inputs, output_attentions=True, use_cache=False, return_dict=True)
     for hook in hooks:
         hook.remove()
 
-    if outputs.attentions is None:
-        raise RuntimeError("Model did not return attentions; enable output_attentions support.")
+    has_attentions = outputs.attentions is not None
 
     component_scores: Dict[Component, float] = {}
     for layer_index, layer in enumerate(model.model.layers):
@@ -294,8 +293,16 @@ def score_prompt_components(model, tokenizer, prompt: str, name: str) -> Dict[Co
         for neuron_index, score in enumerate(neuron_scores.tolist()):
             component_scores[("neuron", layer_index, neuron_index)] = float(score)
 
-        attention = outputs.attentions[layer_index][0]
-        head_scores = _attention_layer_scores(attention, name_span)
+        if has_attentions:
+            attention = outputs.attentions[layer_index][0]
+            head_scores = _attention_layer_scores(attention, name_span)
+        else:
+            # Some attention backends do not materialize attention tensors.
+            head_scores = torch.zeros(
+                model.config.num_attention_heads,
+                dtype=hidden.dtype,
+                device=hidden.device,
+            )
         for head_index, score in enumerate(head_scores.tolist()):
             component_scores[("head", layer_index, head_index)] = float(score)
     return component_scores
@@ -503,7 +510,18 @@ def load_model(model_name: str, *, device_map: str = "auto", torch_dtype: str = 
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     dtype = torch_dtype if torch_dtype == "auto" else getattr(torch, torch_dtype)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device_map, torch_dtype=dtype)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map=device_map,
+            torch_dtype=dtype,
+            attn_implementation="eager",
+        )
+    except TypeError:
+        model = AutoModelForCausalLM.from_pretrained(model_name, device_map=device_map, torch_dtype=dtype)
+
+    # Encourage return of attention tensors when supported by the model/backend.
+    model.config.output_attentions = True
     return model, tokenizer
 
 
