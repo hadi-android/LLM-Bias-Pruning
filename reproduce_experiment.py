@@ -650,10 +650,22 @@ def plot_results(results: Mapping[str, object], plot_dir: Path) -> None:
 
 
 def run_full_reproduction(args: argparse.Namespace) -> Dict[str, object]:
+    global BLACK_NAMES, WHITE_NAMES
+
+    if args.limit_names and args.limit_names > 0:
+        BLACK_NAMES = BLACK_NAMES[: args.limit_names]
+        WHITE_NAMES = WHITE_NAMES[: args.limit_names]
+
     model, tokenizer = load_model(args.model_name, device_map=args.device_map, torch_dtype=args.torch_dtype)
 
     prompt_sets = default_prompt_sets()
     purchase_specs = prompt_sets["purchase"]
+    if args.limit_purchase_prompts and args.limit_purchase_prompts > 0:
+        purchase_specs = purchase_specs[: args.limit_purchase_prompts]
+
+    if not purchase_specs:
+        raise ValueError("No purchase prompts selected. Increase --limit-purchase-prompts or leave it at 0.")
+
     selection = run_selection_pass(
         model,
         tokenizer,
@@ -680,23 +692,28 @@ def run_full_reproduction(args: argparse.Namespace) -> Dict[str, object]:
             "head": evaluate_prompt_family(model, tokenizer, spec, intersection_components(head_sets), max_new_tokens=args.max_new_tokens, use_head_mask=True),
         }
 
-    cross_context_specs = prompt_sets["activity"] + prompt_sets["service"] + prompt_sets["finance"]
-    cross_selection = run_selection_pass(
-        model,
-        tokenizer,
-        cross_context_specs,
-        tau_neuron_min=args.tau_neuron_min,
-        tau_neuron_maj=args.tau_neuron_maj,
-        tau_head_min=args.tau_head_min,
-        tau_head_maj=args.tau_head_maj,
-    )
-    cross_neuron = intersection_components([cross_selection[spec.variation]["neuron"] for spec in cross_context_specs])
-    cross_head = intersection_components([cross_selection[spec.variation]["head"] for spec in cross_context_specs])
-
     cross_context_results: Dict[str, float] = {}
-    for spec in purchase_specs:
-        cross_context_results[f"{spec.variation}_neuron"] = evaluate_prompt_family(model, tokenizer, spec, cross_neuron, max_new_tokens=args.max_new_tokens)["smd"]
-        cross_context_results[f"{spec.variation}_head"] = evaluate_prompt_family(model, tokenizer, spec, cross_head, max_new_tokens=args.max_new_tokens, use_head_mask=True)["smd"]
+    if not args.skip_cross_context:
+        cross_context_specs = prompt_sets["activity"] + prompt_sets["service"] + prompt_sets["finance"]
+        if args.limit_cross_prompts and args.limit_cross_prompts > 0:
+            cross_context_specs = cross_context_specs[: args.limit_cross_prompts]
+
+        if cross_context_specs:
+            cross_selection = run_selection_pass(
+                model,
+                tokenizer,
+                cross_context_specs,
+                tau_neuron_min=args.tau_neuron_min,
+                tau_neuron_maj=args.tau_neuron_maj,
+                tau_head_min=args.tau_head_min,
+                tau_head_maj=args.tau_head_maj,
+            )
+            cross_neuron = intersection_components([cross_selection[spec.variation]["neuron"] for spec in cross_context_specs])
+            cross_head = intersection_components([cross_selection[spec.variation]["head"] for spec in cross_context_specs])
+
+            for spec in purchase_specs:
+                cross_context_results[f"{spec.variation}_neuron"] = evaluate_prompt_family(model, tokenizer, spec, cross_neuron, max_new_tokens=args.max_new_tokens)["smd"]
+                cross_context_results[f"{spec.variation}_head"] = evaluate_prompt_family(model, tokenizer, spec, cross_head, max_new_tokens=args.max_new_tokens, use_head_mask=True)["smd"]
 
     results = {
         "model_name": args.model_name,
@@ -726,6 +743,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tau-head-maj", type=int, default=5)
     parser.add_argument("--output-json", default="")
     parser.add_argument("--plot-dir", default="")
+    parser.add_argument("--limit-names", type=int, default=0, help="Use only the first N names per group to reduce runtime (0 = all)")
+    parser.add_argument("--limit-purchase-prompts", type=int, default=0, help="Use only the first N purchase prompts (0 = all)")
+    parser.add_argument("--limit-cross-prompts", type=int, default=0, help="Use only the first N cross-context prompts (0 = all)")
+    parser.add_argument("--skip-cross-context", action="store_true", help="Skip cross-context selection/evaluation for faster validation")
     parser.add_argument("--dry-run", action="store_true", help="Load the prompt definitions and exit without running the model")
     return parser
 

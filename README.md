@@ -69,6 +69,12 @@ login(token="YOUR_HF_TOKEN")
 !python /kaggle/working/reproduce_experiment.py --smoke-test --output-json /kaggle/working/smoke_results.json --plot-dir /kaggle/working/plots
 ```
 
+If that is still too slow, run a quick validation pass:
+
+```python
+!python /kaggle/working/reproduce_experiment.py --smoke-test --limit-names 4 --limit-purchase-prompts 2 --skip-cross-context --max-new-tokens 12 --output-json /kaggle/working/smoke_fast.json --plot-dir /kaggle/working/plots_fast
+```
+
 6. If you have enough GPU memory and access to the model, run the full checkpoint:
 
 ```python
