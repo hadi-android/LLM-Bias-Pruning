@@ -397,15 +397,16 @@ class NeuronMaskContext:
             layer = self.model.model.layers[layer_index]
             # Use the dtype of the down_proj weight to ensure mask matches model precision
             mask_dtype = layer.mlp.down_proj.weight.dtype
-            mask = torch.ones(
+            mask_base = torch.ones(
                 layer.mlp.down_proj.in_features,
-                device=self.model.device,
                 dtype=mask_dtype,
             )
-            mask[neuron_indices] = 0.0
+            mask_base[neuron_indices] = 0.0
 
-            def pre_hook(_module, inputs, mask=mask):
+            def pre_hook(_module, inputs, mask_base=mask_base):
                 hidden = inputs[0]
+                # Move mask to match hidden state device and dtype
+                mask = mask_base.to(device=hidden.device, dtype=hidden.dtype)
                 return (hidden * mask.view(1, 1, -1),)
 
             self.handles.append(self.model.model.layers[layer_index].mlp.down_proj.register_forward_pre_hook(pre_hook))
