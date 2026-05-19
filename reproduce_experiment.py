@@ -394,7 +394,14 @@ class NeuronMaskContext:
     def __enter__(self):
         neuron_by_layer, _ = component_index_sets(self.components)
         for layer_index, neuron_indices in neuron_by_layer.items():
-            mask = torch.ones(self.model.model.layers[layer_index].mlp.down_proj.in_features, device=self.model.device)
+            layer = self.model.model.layers[layer_index]
+            # Use the dtype of the down_proj weight to ensure mask matches model precision
+            mask_dtype = layer.mlp.down_proj.weight.dtype
+            mask = torch.ones(
+                layer.mlp.down_proj.in_features,
+                device=self.model.device,
+                dtype=mask_dtype,
+            )
             mask[neuron_indices] = 0.0
 
             def pre_hook(_module, inputs, mask=mask):
